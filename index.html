@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Growtopia Tracker App</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { -webkit-tap-highlight-color: transparent; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -198,7 +199,21 @@
                 </div>
                 <p class="text-[10px] text-gray-400 text-center mb-6">*Profit murni dihitung dari aktivitas "Jual" dikurangi "Beli". Tambah/Kurang Saldo Manual TIDAK dihitung.</p>
 
-                <!-- Laporan Evaluasi Per Item dengan FILTER BARU -->
+                <!-- Grafik Profit -->
+                <div class="bg-white border border-gray-200 p-4 rounded-xl shadow-sm mb-6">
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-md font-bold text-gray-800">📊 Grafik Profit Bersih</h2>
+                        <select id="filter-chart" onchange="updateChart()" class="bg-gray-50 border border-gray-300 text-gray-700 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1.5 outline-none font-bold">
+                            <option value="minggu">7 Hari Terakhir</option>
+                            <option value="bulan">Bulan Ini</option>
+                            <option value="hari">Hari Ini</option>
+                        </select>
+                    </div>
+                    <div class="relative h-48 w-full">
+                        <canvas id="profitChart"></canvas>
+                    </div>
+                </div>
+
                 <div class="flex justify-between items-center mb-3 border-b pb-2">
                     <h2 class="text-md font-bold text-gray-800">📈 Evaluasi Per Item</h2>
                     <select id="filter-evaluasi" onchange="renderEvaluasi()" class="bg-gray-50 border border-gray-300 text-gray-700 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1.5 outline-none font-bold">
@@ -208,7 +223,7 @@
                         <option value="bulan">Bulan Ini</option>
                     </select>
                 </div>
-                <div class="overflow-hidden rounded-xl border border-gray-200 shadow-sm bg-white overflow-x-auto">
+                <div class="overflow-hidden rounded-xl border border-gray-200 shadow-sm bg-white overflow-x-auto mb-6">
                     <table class="w-full text-left min-w-[400px]">
                         <thead class="bg-gray-50 border-b border-gray-200">
                             <tr>
@@ -221,6 +236,8 @@
                         <tbody id="evaluasi-table-body" class="divide-y divide-gray-100">
                             <tr><td colspan="4" class="p-4 text-center text-xs text-gray-400">Memuat evaluasi...</td></tr>
                         </tbody>
+                        <tfoot id="evaluasi-table-foot" class="bg-blue-50 border-t-2 border-blue-200 font-bold hidden">
+                        </tfoot>
                     </table>
                 </div>
             </div>
@@ -243,6 +260,69 @@
         // VARIABEL GLOBAL UNTUK MENYIMPAN DATA (Agar filter Evaluasi tidak perlu fetch ulang)
         let globalRiwayat = [];
         let globalBarang = [];
+        let globalAvgBeli = {};
+        let globalProfitHarian = {};
+        let myProfitChart = null; 
+
+        function updateChart() {
+            const period = document.getElementById('filter-chart').value;
+            let labels = [];
+            let dataPoints = [];
+            const today = new Date();
+
+            if (period === 'hari') {
+                // Tampilkan 1 batang untuk hari ini
+                const tglStr = getLocalDateString();
+                labels.push(tglStr);
+                dataPoints.push(globalProfitHarian[tglStr] || 0);
+            } else if (period === 'minggu') {
+                // Tampilkan 7 batang untuk 7 hari terakhir
+                for (let i = 6; i >= 0; i--) {
+                    let d = new Date(today);
+                    d.setDate(today.getDate() - i);
+                    let tglStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                    labels.push(tglStr.substring(5)); // Hanya tampilkan Bulan-Tanggal (MM-DD)
+                    dataPoints.push(globalProfitHarian[tglStr] || 0);
+                }
+            } else if (period === 'bulan') {
+                // Tampilkan batang sepanjang bulan ini (tanggal 1 sampai akhir bulan)
+                let month = today.getMonth();
+                let year = today.getFullYear();
+                let daysInMonth = new Date(year, month + 1, 0).getDate();
+                for (let i = 1; i <= daysInMonth; i++) {
+                    let tglStr = year + '-' + String(month + 1).padStart(2, '0') + '-' + String(i).padStart(2, '0');
+                    labels.push(i.toString()); // Hanya tampilkan angka tanggalnya saja
+                    dataPoints.push(globalProfitHarian[tglStr] || 0);
+                }
+            }
+
+            const ctx = document.getElementById('profitChart').getContext('2d');
+            if (myProfitChart) {
+                myProfitChart.destroy(); // Hapus grafik lama sebelum render ulang
+            }
+
+            // Warna dinamis: biru/ungu jika profit, merah jika rugi
+            let bgColors = dataPoints.map(val => val >= 0 ? '#6366f1' : '#ef4444');
+
+            myProfitChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Profit (WL)',
+                        data: dataPoints,
+                        backgroundColor: bgColors,
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, grid: { borderDash: [5, 5] } } }
+                }
+            });
+        }
 
         function getLocalDateString() {
             const date = new Date();
@@ -345,7 +425,10 @@
         function renderEvaluasi() {
             const period = document.getElementById('filter-evaluasi').value;
             const tbodyEval = document.getElementById('evaluasi-table-body');
+            const tfootEval = document.getElementById('evaluasi-table-foot');
             tbodyEval.innerHTML = '';
+            tfootEval.innerHTML = '';
+            tfootEval.classList.add('hidden');
 
             let itemEval = {};
             const todayStr = getLocalDateString();
@@ -355,7 +438,6 @@
             lastWeekDate.setDate(lastWeekDate.getDate() - 7);
             const lastWeekStr = lastWeekDate.getFullYear() + '-' + String(lastWeekDate.getMonth() + 1).padStart(2, '0') + '-' + String(lastWeekDate.getDate()).padStart(2, '0');
 
-            // Kalkulasi ulang data khusus untuk periode yang dipilih
             globalRiwayat.forEach(row => {
                 const nama = row['Nama Barang'];
                 const qty = Number(row['Jumlah']) || 0;
@@ -363,7 +445,6 @@
                 const totalWL = Number(row['Total WL']) || 0;
                 const tgl = row['Tanggal'] ? row['Tanggal'].split('T')[0] : '';
 
-                // Cek apakah transaksi masuk ke dalam filter waktu
                 let inPeriod = false;
                 if (period === 'semua') inPeriod = true;
                 else if (period === 'hari' && tgl === todayStr) inPeriod = true;
@@ -383,33 +464,52 @@
                 }
             });
 
-            // Tampilkan ke tabel
             if(globalBarang.length > 0){
                 let counter = 0;
-                globalBarang.forEach(item => {
-                    let dataEval = itemEval[item] || { beliQty: 0, beliWL: 0, jualQty: 0, jualWL: 0 };
-                    
-                    // Sembunyikan item dari tabel jika di periode ini tidak ada transaksi sama sekali
-                    if (period !== 'semua' && dataEval.beliQty === 0 && dataEval.jualQty === 0) {
-                        return; // Skip rendering
-                    }
+                let totalModalKeseluruhan = 0;
+                let totalOmsetKeseluruhan = 0;
+                let totalNetKeseluruhan = 0;
 
-                    counter++;
-                    let netProfit = dataEval.jualWL - dataEval.beliWL;
-                    
-                    tbodyEval.innerHTML += `
-                        <tr class="hover:bg-gray-50 transition border-b border-gray-100 last:border-0">
-                            <td class="p-3 text-xs font-bold text-gray-800">${item}</td>
-                            <td class="p-3 text-xs font-semibold text-center text-gray-600"><span class="text-[9px] bg-red-50 px-1 rounded block mb-0.5">x${dataEval.beliQty}</span> ${dataEval.beliWL} WL</td>
-                            <td class="p-3 text-xs font-semibold text-center text-gray-600"><span class="text-[9px] bg-green-50 px-1 rounded block mb-0.5">x${dataEval.jualQty}</span> ${dataEval.jualWL} WL</td>
-                            <td class="p-3 text-sm font-black text-right ${netProfit >= 0 ? 'text-blue-600' : 'text-red-600'}">${netProfit} WL</td>
-                        </tr>
-                    `;
-                });
+                globalBarang.forEach(item => {
+                  let dataEval = itemEval[item] || { beliQty: 0, beliWL: 0, jualQty: 0, jualWL: 0 };
+                  
+                  if (period !== 'semua' && dataEval.beliQty === 0 && dataEval.jualQty === 0) {
+                      return; 
+                  }
+
+                  counter++;
+                  
+                  let modalTerpakai = (globalAvgBeli[item] || 0) * dataEval.jualQty;
+                  let netProfit = Math.round(dataEval.jualWL - modalTerpakai);
+                  
+                  // Tambahkan ke total perhitungan
+                  totalModalKeseluruhan += dataEval.beliWL; 
+                  totalOmsetKeseluruhan += dataEval.jualWL; 
+                  totalNetKeseluruhan += netProfit; 
+                  
+                  tbodyEval.innerHTML += `
+                      <tr class="hover:bg-gray-50 transition border-b border-gray-100 last:border-0">
+                          <td class="p-3 text-xs font-bold text-gray-800">${item}</td>
+                          <td class="p-3 text-xs font-semibold text-center text-gray-600"><span class="text-[9px] bg-red-50 px-1 rounded block mb-0.5">x${dataEval.beliQty}</span> ${dataEval.beliWL} WL</td>
+                          <td class="p-3 text-xs font-semibold text-center text-gray-600"><span class="text-[9px] bg-green-50 px-1 rounded block mb-0.5">x${dataEval.jualQty}</span> ${dataEval.jualWL} WL</td>
+                          <td class="p-3 text-sm font-black text-right ${netProfit >= 0 ? 'text-blue-600' : 'text-red-600'}">${netProfit} WL</td>
+                      </tr>
+                  `;
+              });
                 
-                // Jika setelah difilter ternyata kosong
                 if(counter === 0) {
                     tbodyEval.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-xs text-gray-400">Tidak ada transaksi item pada periode ini.</td></tr>`;
+                } else {
+                    // Tampilkan Baris Total
+                    tfootEval.classList.remove('hidden');
+                    tfootEval.innerHTML = `
+                        <tr>
+                            <td class="p-3 text-xs text-right text-blue-800">TOTAL:</td>
+                            <td class="p-3 text-xs text-center text-red-600">${totalModalKeseluruhan} WL</td>
+                            <td class="p-3 text-xs text-center text-green-600">${totalOmsetKeseluruhan} WL</td>
+                            <td class="p-3 text-sm text-right ${totalNetKeseluruhan >= 0 ? 'text-blue-700' : 'text-red-700'}">${totalNetKeseluruhan} WL</td>
+                        </tr>
+                    `;
                 }
             } else {
                 tbodyEval.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-xs text-gray-400">Belum ada data evaluasi.</td></tr>';
@@ -435,7 +535,28 @@
                     const totalWlKas = result.saldo_saat_ini.total_wl;
                     const idrKas = (totalWlKas / 100) * savedRate;
                     document.getElementById('home-est-idr').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(idrKas);
+                    const historyList = document.getElementById('history-list');
+                    historyList.innerHTML = '';
+                    globalProfitHarian = {};
+                    
+                    // 1. Hitung Rata-rata Modal (Harga Beli) per Item dari SEMUA waktu
+                    globalAvgBeli = {};
+                    let tempBeli = {};
+                    result.riwayat.forEach(row => {
+                        const nama = row['Nama Barang'];
+                        const qty = Number(row['Jumlah']) || 0;
+                        const tipe = row['Tipe'].toLowerCase();
+                        if (tipe.includes('beli') && !tipe.includes('saldo') && nama !== 'Saldo Manual') {
+                            if (!tempBeli[nama]) tempBeli[nama] = { qty: 0, wl: 0 };
+                            tempBeli[nama].qty += qty;
+                            tempBeli[nama].wl += Number(row['Total WL']) || 0;
+                        }
+                    });
+                    for (let item in tempBeli) {
+                        globalAvgBeli[item] = tempBeli[item].wl / tempBeli[item].qty;
+                    }
 
+                    // 2. Hitung Stok dan Profit Murni (Profit HANYA saat ada Jual)
                     let itemStock = {}; 
                     let pHari = 0, pMinggu = 0, pBulan = 0;
                     const todayStr = getLocalDateString();
@@ -445,32 +566,53 @@
                     lastWeekDate.setDate(lastWeekDate.getDate() - 7);
                     const lastWeekStr = lastWeekDate.getFullYear() + '-' + String(lastWeekDate.getMonth() + 1).padStart(2, '0') + '-' + String(lastWeekDate.getDate()).padStart(2, '0');
 
-                    const historyList = document.getElementById('history-list');
-                    historyList.innerHTML = '';
-
                     result.riwayat.forEach(row => {
                         const nama = row['Nama Barang'];
                         const qty = Number(row['Jumlah']) || 0;
                         const tipe = row['Tipe'].toLowerCase();
-                        const isMinus = tipe.includes('beli') || tipe.includes('kurang');
                         const totalWL = Number(row['Total WL']) || 0;
                         const tgl = row['Tanggal'] ? row['Tanggal'].split('T')[0] : '';
                         
+                        // Siapkan wadah untuk tanggal ini di grafik jika belum ada
+                        if (tgl && globalProfitHarian[tgl] === undefined) {
+                            globalProfitHarian[tgl] = 0;
+                        }
+                        
                         if (!tipe.includes('saldo') && nama !== 'Saldo Manual') {
                             if (itemStock[nama] === undefined) itemStock[nama] = 0;
-                            if (tipe.includes('beli')) itemStock[nama] += qty;
-                            else if (tipe.includes('jual')) itemStock[nama] -= qty;
+                            
+                            if (tipe.includes('beli')) {
+                                itemStock[nama] += qty;
+                            } else if (tipe.includes('jual')) {
+                                itemStock[nama] -= qty;
+                                
+                                // RUMUS PROFIT MURNI: Omset Jual - (Harga Beli Rata-rata * Jumlah Terjual)
+                                let modalTerpakai = (globalAvgBeli[nama] || 0) * qty;
+                                let profitMurniTrx = totalWL - modalTerpakai;
 
-                            const profitVal = isMinus ? -totalWL : totalWL;
-                            if (tgl === todayStr) pHari += profitVal;
-                            if (tgl >= lastWeekStr && tgl <= todayStr) pMinggu += profitVal;
-                            if (tgl.startsWith(thisMonthStr)) pBulan += profitVal;
+                                // Simpan profit per hari untuk grafik
+                                if (tgl) {
+                                    globalProfitHarian[tgl] += profitMurniTrx;
+                                }
+
+                                if (tgl === todayStr) pHari += profitMurniTrx;
+                                if (tgl >= lastWeekStr && tgl <= todayStr) pMinggu += profitMurniTrx;
+                                if (tgl.startsWith(thisMonthStr)) pBulan += profitMurniTrx;
+                            }
                         }
                     });
+
+                    // Bulatkan profit agar tidak ada angka desimal
+                    pHari = Math.round(pHari);
+                    pMinggu = Math.round(pMinggu);
+                    pBulan = Math.round(pBulan);
 
                     document.getElementById('profit-hari').innerHTML = formatProfit(pHari);
                     document.getElementById('profit-minggu').innerHTML = formatProfit(pMinggu);
                     document.getElementById('profit-bulan').innerHTML = formatProfit(pBulan);
+                    
+                    // Panggil fungsi render grafik yang baru
+                    updateChart();
 
                     const selectBarang = document.getElementById('nama_barang');
                     const tbodyItem = document.getElementById('item-table-body');
