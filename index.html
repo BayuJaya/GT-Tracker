@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Growtopia Tracker App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; }
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .loader-spin { border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; border-top: 3px solid #ffffff; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .filter-active { background-color: #2563eb !important; color: white !important; border-color: #2563eb !important; }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans pb-20 relative">
+
+    <div id="global-loader" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center transition-opacity duration-300">
+        <div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+        <p id="loader-title" class="text-blue-600 font-bold">Memproses Data...</p>
+        <p id="loader-msg" class="text-xs text-gray-500 mt-2 font-medium"></p>
+    </div>
+
+    <div id="setting-modal" class="fixed inset-0 bg-black/60 z-40 hidden flex items-center justify-center transition-opacity">
+        <div class="bg-white rounded-2xl p-6 w-[90%] max-w-sm shadow-xl relative">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">⚙️ Pengaturan Global</h2>
+            <label class="block text-xs font-semibold text-gray-500 mb-1">Rate IDR per DL (Kalkulasi Estimasi)</label>
+            <input type="number" id="setting-rate" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none mb-4 font-bold" placeholder="Contoh: 4400">
+            <div class="flex gap-2">
+                <button onclick="document.getElementById('setting-modal').classList.add('hidden')" class="flex-1 bg-gray-200 text-gray-700 font-bold py-2 rounded-lg">Batal</button>
+                <button onclick="saveSettings()" class="flex-1 bg-blue-600 text-white font-bold py-2 rounded-lg">Simpan</button>
+            </div>
+            <p id="setting-msg" class="text-sm text-green-600 mt-3 hidden text-center font-bold">Tersimpan!</p>
+        </div>
+    </div>
+
+    <!-- MODAL EDIT TRANSAKSI -->
+    <div id="edit-modal" class="fixed inset-0 bg-black/60 z-40 hidden flex items-center justify-center transition-opacity">
+        <div class="bg-white rounded-2xl p-6 w-[90%] max-w-sm shadow-xl relative max-h-[90vh] overflow-y-auto">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">✏️ Edit Transaksi</h2>
+            <input type="hidden" id="edit-id">
+            <input type="hidden" id="edit-tipe">
+            <input type="hidden" id="edit-barang">
+            
+            <label class="block text-xs font-semibold text-gray-500 mb-1 mt-2">Tanggal</label>
+            <input type="date" id="edit-tanggal" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-2 outline-none mb-2 font-bold">
+
+            <div id="wrap-edit-jumlah">
+                <label class="block text-xs font-semibold text-gray-500 mb-1">Jumlah Item</label>
+                <input type="number" id="edit-jumlah" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-2 outline-none mb-2 font-bold" min="1">
+            </div>
+            
+            <div class="grid grid-cols-3 gap-2 mb-2">
+                <div><label class="block text-xs font-semibold text-gray-500 mb-1">BGL</label><input type="number" id="edit-bgl" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-2 outline-none"></div>
+                <div><label class="block text-xs font-semibold text-gray-500 mb-1">DL</label><input type="number" id="edit-dl" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-2 outline-none"></div>
+                <div><label class="block text-xs font-semibold text-gray-500 mb-1">WL</label><input type="number" id="edit-wl" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-2 outline-none"></div>
+            </div>
+
+            <label class="block text-xs font-semibold text-gray-500 mb-1">Catatan</label>
+            <input type="text" id="edit-alasan" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-2 outline-none mb-4">
+            
+            <div class="flex gap-2">
+                <button onclick="document.getElementById('edit-modal').classList.add('hidden')" class="flex-1 bg-gray-200 text-gray-700 font-bold py-2 rounded-lg">Batal</button>
+                <button onclick="saveEditTrx()" class="flex-1 bg-blue-600 text-white font-bold py-2 rounded-lg">Simpan Perubahan</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-xl mx-auto bg-white min-h-screen shadow-lg relative">
+        <header class="bg-blue-600 text-white p-4 sticky top-0 z-10 shadow-md rounded-b-xl flex justify-between items-center">
+            <h1 class="text-lg font-bold">💎 GT Tracker</h1>
+            <button onclick="document.getElementById('setting-modal').classList.remove('hidden')" class="text-2xl active:scale-90 transition">⚙️</button>
+        </header>
+
+        <div class="p-4" id="content-area">
+
+            <!-- TAB 1: HOME -->
+            <div id="tab-home" class="tab-content animate-fade">
+                <h2 class="text-sm font-bold text-gray-500 mb-2">Ringkasan Aset Kas</h2>
+                <div class="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl shadow-lg p-6 text-white mb-6">
+                    <p class="text-blue-100 text-sm mb-1">Total Estimasi Kas Saldo (IDR)</p>
+                    <h3 class="text-3xl font-bold mb-4" id="home-est-idr">Rp 0</h3>
+                    <div class="grid grid-cols-3 gap-2 text-center bg-white/20 p-3 rounded-xl backdrop-blur-sm">
+                        <div><p class="text-xs text-blue-100">BGL</p><p class="text-xl font-bold" id="saldo-bgl">0</p></div>
+                        <div><p class="text-xs text-blue-100">DL</p><p class="text-xl font-bold" id="saldo-dl">0</p></div>
+                        <div><p class="text-xs text-blue-100">WL</p><p class="text-xl font-bold" id="saldo-wl">0</p></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: TRANSAKSI -->
+            <div id="tab-transaksi" class="tab-content hidden animate-fade">
+                <h2 class="text-lg font-bold text-gray-800 mb-4">Input Transaksi</h2>
+                <form id="trx-form" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Tanggal Transaksi</label>
+                        <input type="date" id="tanggal_trx" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none font-bold text-blue-600" required>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Tipe Transaksi</label>
+                        <select id="tipe" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none font-medium" required>
+                            <option value="Beli Barang">🛒 Beli Barang (Pengeluaran)</option>
+                            <option value="Jual Barang">💰 Jual Barang (Pemasukan)</option>
+                            <option value="Tambah Saldo">➕ Tambah Saldo (Manual)</option>
+                            <option value="Kurang Saldo">➖ Kurang Saldo (Manual)</option>
+                        </select>
+                    </div>
+                    
+                    <div id="form-barang-group" class="grid grid-cols-3 gap-3">
+                        <div class="col-span-2">
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Pilih Barang</label>
+                            <select id="nama_barang" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none" required></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1">Jumlah</label>
+                            <input type="number" id="jumlah" min="1" value="1" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none" required>
+                        </div>
+                    </div>
+
+                    <div id="harga-label" class="text-xs font-bold text-blue-600 mb-[-10px]">Harga Satuan Item:</div>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div><label class="block text-xs font-semibold text-gray-500 mb-1">BGL</label><input type="number" id="bgl" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none" placeholder="0"></div>
+                        <div><label class="block text-xs font-semibold text-gray-500 mb-1">DL</label><input type="number" id="dl" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none" placeholder="0"></div>
+                        <div><label class="block text-xs font-semibold text-gray-500 mb-1">WL</label><input type="number" id="wl" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none" placeholder="0"></div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1">Catatan / Alasan (Opsional)</label>
+                        <input type="text" id="alasan" class="w-full bg-gray-50 border border-gray-300 rounded-lg p-3 outline-none" placeholder="Contoh: Dari profit jualan UT...">
+                    </div>
+
+                    <button type="submit" id="submit-btn" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg flex justify-center items-center gap-2 mt-4 active:scale-95 transition">Simpan Transaksi</button>
+                    <p id="status-msg" class="text-sm text-center mt-2 hidden font-bold"></p>
+                </form>
+            </div>
+
+            <!-- TAB 3: BARANG -->
+            <div id="tab-barang" class="tab-content hidden animate-fade">
+                <h2 class="text-lg font-bold text-gray-800 mb-4">Katalog & Stok Item</h2>
+                <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-6">
+                    <form id="barang-form" class="flex gap-2">
+                        <input type="text" id="input_barang_baru" class="w-full bg-white border border-gray-300 rounded-lg p-2 outline-none" placeholder="Nama item baru..." required>
+                        <button type="submit" id="btn-tambah-barang" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold">Tambah</button>
+                    </form>
+                </div>
+                
+                <div class="overflow-hidden rounded-xl border border-gray-200 shadow-sm bg-white">
+                    <table class="w-full text-left">
+                        <thead class="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                                <th class="p-3 text-xs font-bold text-gray-600 uppercase">Nama Item</th>
+                                <th class="p-3 text-xs font-bold text-gray-600 uppercase text-center w-24">Sisa Stok</th>
+                            </tr>
+                        </thead>
+                        <tbody id="item-table-body" class="divide-y divide-gray-100">
+                            <tr><td colspan="2" class="p-4 text-center text-xs text-gray-400">Memuat data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- TAB 4: RIWAYAT -->
+            <div id="tab-riwayat" class="tab-content hidden animate-fade">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-bold text-gray-800">Riwayat Transaksi</h2>
+                    <button onclick="loadData()" class="text-xs bg-gray-200 py-1 px-3 rounded-full font-bold">🔄 Refresh</button>
+                </div>
+                
+                <div class="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+                    <button onclick="filterRiwayat('Semua', this)" class="filter-btn filter-active whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold border border-gray-300 text-gray-600 bg-white">Semua</button>
+                    <button onclick="filterRiwayat('Beli', this)" class="filter-btn whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold border border-gray-300 text-gray-600 bg-white">Beli Item</button>
+                    <button onclick="filterRiwayat('Jual', this)" class="filter-btn whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold border border-gray-300 text-gray-600 bg-white">Jual Item</button>
+                    <button onclick="filterRiwayat('Saldo', this)" class="filter-btn whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold border border-gray-300 text-gray-600 bg-white">Manual Saldo</button>
+                </div>
+
+                <div class="space-y-3" id="history-list"></div>
+            </div>
+
+            <!-- TAB 5: LAPORAN -->
+            <div id="tab-laporan" class="tab-content hidden animate-fade">
+                <h2 class="text-lg font-bold text-gray-800 mb-4">Laporan Keuangan (Profit)</h2>
+                
+                <div class="grid grid-cols-2 gap-3 mb-6">
+                    <div class="bg-white border border-gray-200 p-4 rounded-xl shadow-sm text-center col-span-2">
+                        <p class="text-xs font-bold text-gray-500 mb-1">Profit Bulan Ini</p>
+                        <h3 class="text-3xl font-black" id="profit-bulan">0 WL</h3>
+                    </div>
+                    <div class="bg-white border border-gray-200 p-4 rounded-xl shadow-sm text-center">
+                        <p class="text-xs font-bold text-gray-500 mb-1">Profit Hari Ini</p>
+                        <h3 class="text-lg font-black" id="profit-hari">0 WL</h3>
+                    </div>
+                    <div class="bg-white border border-gray-200 p-4 rounded-xl shadow-sm text-center">
+                        <p class="text-xs font-bold text-gray-500 mb-1">Profit Minggu Ini</p>
+                        <h3 class="text-lg font-black" id="profit-minggu">0 WL</h3>
+                    </div>
+                </div>
+                <p class="text-[10px] text-gray-400 text-center mb-6">*Profit murni dihitung dari aktivitas "Jual" dikurangi "Beli". Tambah/Kurang Saldo Manual TIDAK dihitung.</p>
+
+                <!-- Laporan Evaluasi Per Item dengan FILTER BARU -->
+                <div class="flex justify-between items-center mb-3 border-b pb-2">
+                    <h2 class="text-md font-bold text-gray-800">📈 Evaluasi Per Item</h2>
+                    <select id="filter-evaluasi" onchange="renderEvaluasi()" class="bg-gray-50 border border-gray-300 text-gray-700 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1.5 outline-none font-bold">
+                        <option value="semua">Semua Waktu</option>
+                        <option value="hari">Hari Ini</option>
+                        <option value="minggu">Minggu Ini</option>
+                        <option value="bulan">Bulan Ini</option>
+                    </select>
+                </div>
+                <div class="overflow-hidden rounded-xl border border-gray-200 shadow-sm bg-white overflow-x-auto">
+                    <table class="w-full text-left min-w-[400px]">
+                        <thead class="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                                <th class="p-3 text-xs font-bold text-gray-600 uppercase">Item</th>
+                                <th class="p-3 text-xs font-bold text-gray-600 uppercase text-center text-red-500">Modal (Beli)</th>
+                                <th class="p-3 text-xs font-bold text-gray-600 uppercase text-center text-green-500">Omset (Jual)</th>
+                                <th class="p-3 text-xs font-bold text-gray-600 uppercase text-right text-blue-600">Net Profit</th>
+                            </tr>
+                        </thead>
+                        <tbody id="evaluasi-table-body" class="divide-y divide-gray-100">
+                            <tr><td colspan="4" class="p-4 text-center text-xs text-gray-400">Memuat evaluasi...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+        <nav class="fixed bottom-0 w-full max-w-xl bg-white border-t border-gray-200 flex justify-around items-center pb-safe z-20">
+            <button onclick="switchTab('home')" id="nav-home" class="nav-btn flex-1 py-3 flex flex-col items-center text-blue-600"><span class="text-xl mb-1">🏠</span><span class="text-[10px] font-bold">Home</span></button>
+            <button onclick="switchTab('transaksi')" id="nav-transaksi" class="nav-btn flex-1 py-3 flex flex-col items-center text-gray-400"><span class="text-xl mb-1">✍️</span><span class="text-[10px] font-bold">Input</span></button>
+            <button onclick="switchTab('barang')" id="nav-barang" class="nav-btn flex-1 py-3 flex flex-col items-center text-gray-400"><span class="text-xl mb-1">📦</span><span class="text-[10px] font-bold">Item</span></button>
+            <button onclick="switchTab('riwayat')" id="nav-riwayat" class="nav-btn flex-1 py-3 flex flex-col items-center text-gray-400"><span class="text-xl mb-1">📜</span><span class="text-[10px] font-bold">Riwayat</span></button>
+            <button onclick="switchTab('laporan')" id="nav-laporan" class="nav-btn flex-1 py-3 flex flex-col items-center text-gray-400"><span class="text-xl mb-1">📊</span><span class="text-[10px] font-bold">Laporan</span></button>
+        </nav>
+    </div>
+
+    <script>
+        // MASUKKAN URL API HASIL DEPLOY DI SINI!!!
+        const API_URL = 'https://script.google.com/macros/s/AKfycbxQyw0NXrq7LDik_5cyp4IKBwwy17MHvs8PfgbHwUZC6zeuPF6tz9gOWtNr-AhBJHO0/exec'; 
+
+        // VARIABEL GLOBAL UNTUK MENYIMPAN DATA (Agar filter Evaluasi tidak perlu fetch ulang)
+        let globalRiwayat = [];
+        let globalBarang = [];
+
+        function getLocalDateString() {
+            const date = new Date();
+            return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+        }
+
+        document.getElementById('tanggal_trx').value = getLocalDateString();
+
+        function showLoading(title = "Memproses Data...", msg = "") {
+            const loader = document.getElementById('global-loader');
+            document.getElementById('loader-title').innerText = title;
+            document.getElementById('loader-msg').innerText = msg;
+            loader.classList.remove('hidden');
+            setTimeout(() => loader.classList.remove('opacity-0'), 10);
+        }
+
+        function hideLoading() {
+            const loader = document.getElementById('global-loader');
+            loader.classList.add('opacity-0');
+            setTimeout(() => loader.classList.add('hidden'), 300);
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById('tab-' + tabName).classList.remove('hidden');
+            document.querySelectorAll('.nav-btn').forEach(el => { el.classList.remove('text-blue-600'); el.classList.add('text-gray-400'); });
+            document.getElementById('nav-' + tabName).classList.add('text-blue-600'); 
+            document.getElementById('nav-' + tabName).classList.remove('text-gray-400');
+        }
+
+        function saveSettings() {
+            const rate = document.getElementById('setting-rate').value;
+            localStorage.setItem('gt_default_rate', rate); 
+            document.getElementById('setting-msg').classList.remove('hidden'); 
+            loadData();
+            setTimeout(() => {
+                document.getElementById('setting-msg').classList.add('hidden');
+                document.getElementById('setting-modal').classList.add('hidden');
+            }, 1000);
+        }
+
+        document.getElementById('tipe').addEventListener('change', function() {
+            const isBarang = this.value === 'Beli Barang' || this.value === 'Jual Barang';
+            const formBarangGroup = document.getElementById('form-barang-group');
+            const lblHarga = document.getElementById('harga-label');
+            
+            if (isBarang) {
+                formBarangGroup.classList.remove('hidden');
+                lblHarga.innerText = 'Harga Satuan Item:';
+                document.getElementById('nama_barang').required = true;
+                document.getElementById('jumlah').required = true;
+            } else {
+                formBarangGroup.classList.add('hidden');
+                lblHarga.innerText = 'Nominal Saldo:';
+                document.getElementById('nama_barang').required = false;
+                document.getElementById('jumlah').required = false;
+            }
+        });
+
+        async function deleteTrx(idTrx) {
+            if(!confirm("Yakin ingin menghapus transaksi ini? Saldo dan stok akan otomatis dikembalikan.")) return;
+            
+            showLoading("Menghapus Data...", "Menyesuaikan ulang saldo dan stok...");
+            try {
+                const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'delete_transaksi', id: idTrx }) });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    loadData(); 
+                } else {
+                    alert("Error: " + result.message);
+                    hideLoading();
+                }
+            } catch (error) { 
+                alert("Gagal koneksi server!");
+                hideLoading();
+            } 
+        }
+
+        function filterRiwayat(kategori, btnElem) {
+            document.querySelectorAll('.filter-btn').forEach(btn => { btn.classList.remove('filter-active'); });
+            btnElem.classList.add('filter-active');
+            const cards = document.querySelectorAll('.trx-card');
+            cards.forEach(card => {
+                const tipe = card.getAttribute('data-tipe');
+                if (kategori === 'Semua') { card.style.display = 'flex'; } 
+                else if (kategori === 'Beli' && tipe.includes('beli')) { card.style.display = 'flex'; } 
+                else if (kategori === 'Jual' && tipe.includes('jual')) { card.style.display = 'flex'; } 
+                else if (kategori === 'Saldo' && tipe.includes('saldo')) { card.style.display = 'flex'; } 
+                else { card.style.display = 'none'; }
+            });
+        }
+
+        function formatProfit(amount) {
+            if(amount > 0) return `<span class="text-green-500">+${amount} WL</span>`;
+            if(amount < 0) return `<span class="text-red-500">${amount} WL</span>`;
+            return `<span class="text-gray-800">0 WL</span>`;
+        }
+
+        // FUNGSI BARU UNTUK MERENDER TABEL EVALUASI BERDASARKAN FILTER WAKTU
+        function renderEvaluasi() {
+            const period = document.getElementById('filter-evaluasi').value;
+            const tbodyEval = document.getElementById('evaluasi-table-body');
+            tbodyEval.innerHTML = '';
+
+            let itemEval = {};
+            const todayStr = getLocalDateString();
+            const thisMonthStr = todayStr.substring(0,7);
+            
+            const lastWeekDate = new Date();
+            lastWeekDate.setDate(lastWeekDate.getDate() - 7);
+            const lastWeekStr = lastWeekDate.getFullYear() + '-' + String(lastWeekDate.getMonth() + 1).padStart(2, '0') + '-' + String(lastWeekDate.getDate()).padStart(2, '0');
+
+            // Kalkulasi ulang data khusus untuk periode yang dipilih
+            globalRiwayat.forEach(row => {
+                const nama = row['Nama Barang'];
+                const qty = Number(row['Jumlah']) || 0;
+                const tipe = row['Tipe'].toLowerCase();
+                const totalWL = Number(row['Total WL']) || 0;
+                const tgl = row['Tanggal'] ? row['Tanggal'].split('T')[0] : '';
+
+                // Cek apakah transaksi masuk ke dalam filter waktu
+                let inPeriod = false;
+                if (period === 'semua') inPeriod = true;
+                else if (period === 'hari' && tgl === todayStr) inPeriod = true;
+                else if (period === 'minggu' && tgl >= lastWeekStr && tgl <= todayStr) inPeriod = true;
+                else if (period === 'bulan' && tgl.startsWith(thisMonthStr)) inPeriod = true;
+
+                if (inPeriod && !tipe.includes('saldo') && nama !== 'Saldo Manual') {
+                    if (itemEval[nama] === undefined) itemEval[nama] = { beliQty: 0, beliWL: 0, jualQty: 0, jualWL: 0 };
+                    
+                    if (tipe.includes('beli')) {
+                        itemEval[nama].beliQty += qty;
+                        itemEval[nama].beliWL += totalWL;
+                    } else if (tipe.includes('jual')) {
+                        itemEval[nama].jualQty += qty;
+                        itemEval[nama].jualWL += totalWL;
+                    }
+                }
+            });
+
+            // Tampilkan ke tabel
+            if(globalBarang.length > 0){
+                let counter = 0;
+                globalBarang.forEach(item => {
+                    let dataEval = itemEval[item] || { beliQty: 0, beliWL: 0, jualQty: 0, jualWL: 0 };
+                    
+                    // Sembunyikan item dari tabel jika di periode ini tidak ada transaksi sama sekali
+                    if (period !== 'semua' && dataEval.beliQty === 0 && dataEval.jualQty === 0) {
+                        return; // Skip rendering
+                    }
+
+                    counter++;
+                    let netProfit = dataEval.jualWL - dataEval.beliWL;
+                    
+                    tbodyEval.innerHTML += `
+                        <tr class="hover:bg-gray-50 transition border-b border-gray-100 last:border-0">
+                            <td class="p-3 text-xs font-bold text-gray-800">${item}</td>
+                            <td class="p-3 text-xs font-semibold text-center text-gray-600"><span class="text-[9px] bg-red-50 px-1 rounded block mb-0.5">x${dataEval.beliQty}</span> ${dataEval.beliWL} WL</td>
+                            <td class="p-3 text-xs font-semibold text-center text-gray-600"><span class="text-[9px] bg-green-50 px-1 rounded block mb-0.5">x${dataEval.jualQty}</span> ${dataEval.jualWL} WL</td>
+                            <td class="p-3 text-sm font-black text-right ${netProfit >= 0 ? 'text-blue-600' : 'text-red-600'}">${netProfit} WL</td>
+                        </tr>
+                    `;
+                });
+                
+                // Jika setelah difilter ternyata kosong
+                if(counter === 0) {
+                    tbodyEval.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-xs text-gray-400">Tidak ada transaksi item pada periode ini.</td></tr>`;
+                }
+            } else {
+                tbodyEval.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-xs text-gray-400">Belum ada data evaluasi.</td></tr>';
+            }
+        }
+
+        async function loadData() {
+            showLoading("Memuat Data dari Database...", "");
+            try {
+                const response = await fetch(API_URL);
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    // Simpan ke variabel global untuk filter
+                    globalRiwayat = result.riwayat;
+                    globalBarang = result.barang;
+
+                    document.getElementById('saldo-bgl').innerText = result.saldo_saat_ini.bgl;
+                    document.getElementById('saldo-dl').innerText = result.saldo_saat_ini.dl;
+                    document.getElementById('saldo-wl').innerText = result.saldo_saat_ini.wl;
+
+                    const savedRate = Number(localStorage.getItem('gt_default_rate')) || 0;
+                    const totalWlKas = result.saldo_saat_ini.total_wl;
+                    const idrKas = (totalWlKas / 100) * savedRate;
+                    document.getElementById('home-est-idr').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(idrKas);
+
+                    let itemStock = {}; 
+                    let pHari = 0, pMinggu = 0, pBulan = 0;
+                    const todayStr = getLocalDateString();
+                    const thisMonthStr = todayStr.substring(0,7);
+                    
+                    const lastWeekDate = new Date();
+                    lastWeekDate.setDate(lastWeekDate.getDate() - 7);
+                    const lastWeekStr = lastWeekDate.getFullYear() + '-' + String(lastWeekDate.getMonth() + 1).padStart(2, '0') + '-' + String(lastWeekDate.getDate()).padStart(2, '0');
+
+                    const historyList = document.getElementById('history-list');
+                    historyList.innerHTML = '';
+
+                    result.riwayat.forEach(row => {
+                        const nama = row['Nama Barang'];
+                        const qty = Number(row['Jumlah']) || 0;
+                        const tipe = row['Tipe'].toLowerCase();
+                        const isMinus = tipe.includes('beli') || tipe.includes('kurang');
+                        const totalWL = Number(row['Total WL']) || 0;
+                        const tgl = row['Tanggal'] ? row['Tanggal'].split('T')[0] : '';
+                        
+                        if (!tipe.includes('saldo') && nama !== 'Saldo Manual') {
+                            if (itemStock[nama] === undefined) itemStock[nama] = 0;
+                            if (tipe.includes('beli')) itemStock[nama] += qty;
+                            else if (tipe.includes('jual')) itemStock[nama] -= qty;
+
+                            const profitVal = isMinus ? -totalWL : totalWL;
+                            if (tgl === todayStr) pHari += profitVal;
+                            if (tgl >= lastWeekStr && tgl <= todayStr) pMinggu += profitVal;
+                            if (tgl.startsWith(thisMonthStr)) pBulan += profitVal;
+                        }
+                    });
+
+                    document.getElementById('profit-hari').innerHTML = formatProfit(pHari);
+                    document.getElementById('profit-minggu').innerHTML = formatProfit(pMinggu);
+                    document.getElementById('profit-bulan').innerHTML = formatProfit(pBulan);
+
+                    const selectBarang = document.getElementById('nama_barang');
+                    const tbodyItem = document.getElementById('item-table-body');
+                    selectBarang.innerHTML = '<option value="" disabled selected>Pilih dari katalog...</option>';
+                    tbodyItem.innerHTML = '';
+                    
+                    if(result.barang.length > 0){
+                        result.barang.forEach(item => {
+                            let stock = itemStock[item] || 0;
+                            let stockColor = stock > 0 ? 'text-green-600' : (stock < 0 ? 'text-red-500' : 'text-gray-800');
+                            selectBarang.innerHTML += `<option value="${item}">${item} (Stok: ${stock})</option>`;
+                            tbodyItem.innerHTML += `
+                                <tr class="hover:bg-gray-50 transition border-b border-gray-100 last:border-0">
+                                    <td class="p-3 text-sm font-bold text-gray-800">${item}</td>
+                                    <td class="p-3 text-sm font-bold text-center ${stockColor}">${stock}</td>
+                                </tr>
+                            `;
+                        });
+                    } else {
+                        selectBarang.innerHTML = '<option disabled selected>Belum ada item</option>';
+                        tbodyItem.innerHTML = '<tr><td colspan="2" class="p-4 text-center text-xs text-gray-400">Belum ada item ditambahkan.</td></tr>';
+                    }
+
+                    // Panggil fungsi render evaluasi yang baru
+                    renderEvaluasi();
+
+                    if (result.riwayat.length === 0) {
+                        historyList.innerHTML = '<div class="text-center text-gray-500 py-10">Belum ada transaksi</div>';
+                    } else {
+                        result.riwayat.reverse().forEach(row => {
+                            const isMinus = row['Tipe'].toLowerCase().includes('beli') || row['Tipe'].toLowerCase().includes('kurang');
+                            const showJumlah = (row['Nama Barang'] === 'Saldo Manual') ? '' : `<span class="text-xs text-blue-600 bg-blue-100 font-bold px-1.5 py-0.5 rounded">x${row['Jumlah']}</span>`;
+                            let tgl = '-';
+                            if (row['Tanggal']) {
+                                tgl = row['Tanggal'].includes('T') ? new Date(row['Tanggal']).toLocaleDateString('sv-SE') : row['Tanggal'];
+                            }
+                            const showAlasan = row['Alasan'] ? `<p class="text-[11px] text-gray-600 mt-1 italic border-l-2 border-blue-300 pl-2">"${row['Alasan']}"</p>` : '';
+                            const colorClass = isMinus ? 'text-red-500' : 'text-green-500';
+
+                            historyList.innerHTML += `
+                                <div class="trx-card bg-white border border-gray-200 p-4 rounded-xl flex flex-col shadow-sm" data-tipe="${row['Tipe'].toLowerCase()}">
+                                    <div class="flex items-start justify-between w-full">
+                                        <div class="flex-1 pr-2">
+                                            <h4 class="font-bold text-gray-800 text-sm flex items-center gap-2">${row['Nama Barang']} ${showJumlah}</h4>
+                                            <p class="text-[10px] text-gray-400 mt-1">${tgl} • ${row['Tipe']}</p>
+                                        </div>
+                                        <div class="text-right whitespace-nowrap">
+                                            <p class="font-bold text-sm ${colorClass}">${isMinus ? '-' : '+'} ${row['Total WL']} WL</p>
+                                        </div>
+                                    </div>
+                                    <div class="w-full">
+                                        ${showAlasan}
+                                    </div>
+                                    <div class="mt-3 pt-3 border-t border-gray-100 flex justify-end w-full gap-2">
+                                        <button onclick="openEditModal('${row['ID']}')" class="text-[10px] bg-blue-50 text-blue-600 font-bold px-3 py-1 rounded hover:bg-blue-100 transition">✏️ Edit</button>
+                                        <button onclick="deleteTrx('${row['ID']}')" class="text-[10px] bg-red-50 text-red-600 font-bold px-3 py-1 rounded hover:bg-red-100 transition">🗑️ Hapus</button>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        document.querySelector('.filter-btn').click();
+                    }
+                } else {
+                    document.getElementById('loader-msg').innerText = 'Error Server: ' + result.message;
+                    setTimeout(hideLoading, 3000);
+                    return; 
+                }
+            } catch (error) { 
+                document.getElementById('loader-msg').innerText = 'Gagal Koneksi API';
+                setTimeout(hideLoading, 3000);
+                return;
+            } 
+            hideLoading();
+        }
+
+        document.getElementById('trx-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const msg = document.getElementById('status-msg');
+            msg.classList.add('hidden');
+            
+            showLoading("Menyimpan Transaksi...", "Mohon tunggu sebentar.");
+            const isBarang = document.getElementById('tipe').value === 'Beli Barang' || document.getElementById('tipe').value === 'Jual Barang';
+
+            const payload = {
+                action: 'transaksi', 
+                tipe: document.getElementById('tipe').value,
+                tanggal: document.getElementById('tanggal_trx').value, 
+                nama_barang: isBarang ? document.getElementById('nama_barang').value : 'Saldo Manual', 
+                jumlah: isBarang ? document.getElementById('jumlah').value : 1,
+                bgl: document.getElementById('bgl').value || 0, 
+                dl: document.getElementById('dl').value || 0,
+                wl: document.getElementById('wl').value || 0, 
+                alasan: document.getElementById('alasan').value || "", 
+                rate_idr: localStorage.getItem('gt_default_rate') || 0
+            };
+
+            try {
+                const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    document.getElementById('jumlah').value = '1'; 
+                    document.getElementById('alasan').value = ''; 
+                    ['bgl', 'dl', 'wl'].forEach(id => document.getElementById(id).value = '');
+                    
+                    switchTab('riwayat'); 
+                    loadData();
+                } else { 
+                    msg.innerText = '❌ Error: ' + result.message; msg.classList.remove('hidden'); 
+                    hideLoading();
+                }
+            } catch (error) { 
+                msg.innerText = '❌ Gagal koneksi.'; msg.classList.remove('hidden'); 
+                hideLoading();
+            } 
+            setTimeout(() => { msg.classList.add('hidden'); }, 3000);
+        });
+
+        document.getElementById('barang-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            showLoading("Menambahkan Item...", "");
+            try {
+                const response = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'tambah_barang', nama_barang: document.getElementById('input_barang_baru').value }) });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    document.getElementById('input_barang_baru').value = ''; 
+                    loadData();
+                } else {
+                    document.getElementById('loader-msg').innerText = '❌ Error: ' + result.message;
+                    setTimeout(hideLoading, 3000);
+                }
+            } catch (error) { 
+                document.getElementById('loader-msg').innerText = '❌ Gagal koneksi.';
+                setTimeout(hideLoading, 3000);
+            } 
+        });
+
+
+        function openEditModal(id) {
+            const trx = globalRiwayat.find(r => r['ID'] === id);
+            if (!trx) return;
+
+            document.getElementById('edit-id').value = trx['ID'];
+            document.getElementById('edit-tipe').value = trx['Tipe'];
+            document.getElementById('edit-barang').value = trx['Nama Barang'];
+            
+            // Set format tanggal
+            let tgl = getLocalDateString();
+            if (trx['Tanggal']) {
+                tgl = trx['Tanggal'].includes('T') ? new Date(trx['Tanggal']).toLocaleDateString('sv-SE') : trx['Tanggal'];
+            }
+            document.getElementById('edit-tanggal').value = tgl;
+            
+            document.getElementById('edit-jumlah').value = trx['Jumlah'] || 1;
+            document.getElementById('edit-bgl').value = trx['BGL'] || 0;
+            document.getElementById('edit-dl').value = trx['DL'] || 0;
+            document.getElementById('edit-wl').value = trx['WL'] || 0;
+            document.getElementById('edit-alasan').value = trx['Alasan'] || '';
+
+            // Sembunyikan input jumlah jika Saldo Manual
+            if (trx['Tipe'].toLowerCase().includes('saldo')) {
+                document.getElementById('wrap-edit-jumlah').style.display = 'none';
+            } else {
+                document.getElementById('wrap-edit-jumlah').style.display = 'block';
+            }
+
+            document.getElementById('edit-modal').classList.remove('hidden');
+        }
+
+        async function saveEditTrx() {
+            showLoading("Menyimpan Perubahan...", "");
+            const payload = {
+                action: 'edit_transaksi',
+                id: document.getElementById('edit-id').value,
+                tanggal: document.getElementById('edit-tanggal').value,
+                tipe: document.getElementById('edit-tipe').value,
+                nama_barang: document.getElementById('edit-barang').value,
+                jumlah: document.getElementById('edit-jumlah').value || 1,
+                bgl: document.getElementById('edit-bgl').value || 0,
+                dl: document.getElementById('edit-dl').value || 0,
+                wl: document.getElementById('edit-wl').value || 0,
+                alasan: document.getElementById('edit-alasan').value || "",
+                rate_idr: localStorage.getItem('gt_default_rate') || 0
+            };
+
+            try {
+                const response = await fetch(API_URL, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+                    body: JSON.stringify(payload) 
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    document.getElementById('edit-modal').classList.add('hidden');
+                    loadData();
+                } else {
+                    alert("Error: " + result.message);
+                    hideLoading();
+                }
+            } catch (error) {
+                alert("Gagal koneksi ke server!");
+                hideLoading();
+            }
+        }
+
+        window.onload = () => { 
+            const savedRate = localStorage.getItem('gt_default_rate');
+            if (savedRate) { document.getElementById('setting-rate').value = savedRate; }
+            loadData(); 
+        };
+    </script>
+</body>
+</html>
