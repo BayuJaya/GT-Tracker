@@ -88,6 +88,22 @@
                         <div><p class="text-xs text-blue-100">WL</p><p class="text-xl font-bold" id="saldo-wl">0</p></div>
                     </div>
                 </div>
+
+                <!-- Card Net Worth Baru -->
+                <h2 class="text-sm font-bold text-gray-500 mb-2">Estimasi Total Kekayaan (Net Worth)</h2>
+                <div class="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl shadow-lg p-6 text-white mb-4">
+                    <p class="text-emerald-100 text-sm mb-1">Total Nilai Keseluruhan (IDR)</p>
+                    <h3 class="text-3xl font-bold mb-3" id="home-networth-idr">Rp 0</h3>
+                    <div class="flex justify-between items-center bg-white/20 p-3 rounded-xl backdrop-blur-sm text-xs font-bold">
+                        <div class="text-center"><span class="block text-emerald-100 font-normal">Kas Liquid</span><span id="nw-kas">0 WL</span></div>
+                        <div class="text-emerald-200 text-lg">+</div>
+                        <div class="text-center"><span class="block text-emerald-100 font-normal">Modal Barang</span><span id="nw-barang">0 WL</span></div>
+                    </div>
+                    <div class="text-center mt-3 pt-3 border-t border-emerald-400/30">
+                        <p class="text-xs text-emerald-100 mb-1">Total Kekayaan (Kas + Barang)</p>
+                        <p class="text-xl font-black" id="nw-total">0 WL</p>
+                    </div>
+                </div>
             </div>
 
             <!-- TAB 2: TRANSAKSI -->
@@ -152,12 +168,16 @@
                         <thead class="bg-gray-50 border-b border-gray-200">
                             <tr>
                                 <th class="p-3 text-xs font-bold text-gray-600 uppercase">Nama Item</th>
-                                <th class="p-3 text-xs font-bold text-gray-600 uppercase text-center w-24">Sisa Stok</th>
+                                <th class="p-3 text-xs font-bold text-gray-600 uppercase text-center w-20">Sisa Stok</th>
+                                <th class="p-3 text-xs font-bold text-gray-600 uppercase text-right">Nilai Modal</th>
                             </tr>
                         </thead>
                         <tbody id="item-table-body" class="divide-y divide-gray-100">
-                            <tr><td colspan="2" class="p-4 text-center text-xs text-gray-400">Memuat data...</td></tr>
+                            <tr><td colspan="3" class="p-4 text-center text-xs text-gray-400">Memuat data...</td></tr>
                         </tbody>
+                        <!-- Ini bagian tfoot baru untuk Total -->
+                        <tfoot id="item-table-foot" class="bg-teal-50 border-t-2 border-teal-200 font-bold hidden">
+                        </tfoot>
                     </table>
                 </div>
             </div>
@@ -615,6 +635,28 @@
                         }
                     });
 
+                    let totalValueBarangWL = 0;
+                    for (const item in inventoryFifo) {
+                        inventoryFifo[item].forEach(kloter => {
+                            if (kloter.sisaQty > 0) {
+                                // Kalikan sisa stok di inventori dengan harga modal belinya
+                                totalValueBarangWL += (kloter.sisaQty * kloter.hargaBeli);
+                            }
+                        });
+                    }
+                    totalValueBarangWL = Math.round(totalValueBarangWL); 
+                    
+                    // Jumlahkan kas dengan nilai barang
+                    const totalNetWorthWL = totalWlKas + totalValueBarangWL;
+                    const idrNetWorth = (totalNetWorthWL / 100) * savedRate;
+
+                    // Update tulisan (UI) ke Card Net Worth
+                    document.getElementById('home-networth-idr').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(idrNetWorth);
+                    document.getElementById('nw-kas').innerText = totalWlKas + " WL";
+                    document.getElementById('nw-barang').innerText = totalValueBarangWL + " WL";
+                    document.getElementById('nw-total').innerText = totalNetWorthWL + " WL";
+
+
                     pHari = Math.round(pHari);
                     pMinggu = Math.round(pMinggu);
                     pBulan = Math.round(pBulan);
@@ -627,24 +669,56 @@
 
                     const selectBarang = document.getElementById('nama_barang');
                     const tbodyItem = document.getElementById('item-table-body');
+                    const tfootItem = document.getElementById('item-table-foot'); 
+                    
                     selectBarang.innerHTML = '<option value="" disabled selected>Pilih dari katalog...</option>';
                     tbodyItem.innerHTML = '';
+                    tfootItem.innerHTML = '';
+                    tfootItem.classList.add('hidden');
                     
                     if(result.barang.length > 0){
+                        let totalSemuaModal = 0; // Variabel penampung grand total
+
                         result.barang.forEach(item => {
                             let stock = itemStock[item] || 0;
                             let stockColor = stock > 0 ? 'text-green-600' : (stock < 0 ? 'text-red-500' : 'text-gray-800');
+                            
+                            let totalModalItem = 0;
+                            if (inventoryFifo[item]) {
+                                inventoryFifo[item].forEach(kloter => {
+                                    if (kloter.sisaQty > 0) {
+                                        totalModalItem += (kloter.sisaQty * kloter.hargaBeli);
+                                    }
+                                });
+                            }
+                            totalModalItem = Math.round(totalModalItem);
+                            totalSemuaModal += totalModalItem; // Tambahkan modal item ini ke grand total
+                            
+                            // Teks tambahan dirapikan (tanpa @)
+                            let avgModal = stock > 0 ? (totalModalItem / stock).toFixed(1) : 0;
+                            let infoModal = stock > 0 ? `<span class="block text-[10px] text-gray-400 font-normal">(${avgModal} WL/item)</span>` : '';
+
                             selectBarang.innerHTML += `<option value="${item}">${item} (Stok: ${stock})</option>`;
                             tbodyItem.innerHTML += `
                                 <tr class="hover:bg-gray-50 transition border-b border-gray-100 last:border-0">
                                     <td class="p-3 text-sm font-bold text-gray-800">${item}</td>
                                     <td class="p-3 text-sm font-bold text-center ${stockColor}">${stock}</td>
+                                    <td class="p-3 text-sm font-bold text-right text-teal-600">${totalModalItem} WL ${infoModal}</td>
                                 </tr>
                             `;
                         });
+
+                        // Munculkan baris Total di bawah tabel
+                        tfootItem.classList.remove('hidden');
+                        tfootItem.innerHTML = `
+                            <tr>
+                                <td colspan="2" class="p-3 text-xs text-right text-teal-800 uppercase">Total Modal Keseluruhan:</td>
+                                <td class="p-3 text-sm text-right text-teal-700">${totalSemuaModal} WL</td>
+                            </tr>
+                        `;
                     } else {
                         selectBarang.innerHTML = '<option disabled selected>Belum ada item</option>';
-                        tbodyItem.innerHTML = '<tr><td colspan="2" class="p-4 text-center text-xs text-gray-400">Belum ada item ditambahkan.</td></tr>';
+                        tbodyItem.innerHTML = '<tr><td colspan="3" class="p-4 text-center text-xs text-gray-400">Belum ada item ditambahkan.</td></tr>';
                     }
 
                     renderEvaluasi();
