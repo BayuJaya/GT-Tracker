@@ -421,7 +421,7 @@
             return `<span class="text-gray-800">0 WL</span>`;
         }
 
-        // FUNGSI BARU UNTUK MERENDER TABEL EVALUASI BERDASARKAN FILTER WAKTU
+        // FUNGSI RENDER EVALUASI BARU (MENDUKUNG FIFO)
         function renderEvaluasi() {
             const period = document.getElementById('filter-evaluasi').value;
             const tbodyEval = document.getElementById('evaluasi-table-body');
@@ -438,6 +438,7 @@
             lastWeekDate.setDate(lastWeekDate.getDate() - 7);
             const lastWeekStr = lastWeekDate.getFullYear() + '-' + String(lastWeekDate.getMonth() + 1).padStart(2, '0') + '-' + String(lastWeekDate.getDate()).padStart(2, '0');
 
+            // Kita iterasi data riwayat yang sudah dihitung FIFO-nya di loadData()
             globalRiwayat.forEach(row => {
                 const nama = row['Nama Barang'];
                 const qty = Number(row['Jumlah']) || 0;
@@ -452,7 +453,7 @@
                 else if (period === 'bulan' && tgl.startsWith(thisMonthStr)) inPeriod = true;
 
                 if (inPeriod && !tipe.includes('saldo') && nama !== 'Saldo Manual') {
-                    if (itemEval[nama] === undefined) itemEval[nama] = { beliQty: 0, beliWL: 0, jualQty: 0, jualWL: 0 };
+                    if (itemEval[nama] === undefined) itemEval[nama] = { beliQty: 0, beliWL: 0, jualQty: 0, jualWL: 0, cogs: 0, netProfit: 0 };
                     
                     if (tipe.includes('beli')) {
                         itemEval[nama].beliQty += qty;
@@ -460,6 +461,9 @@
                     } else if (tipe.includes('jual')) {
                         itemEval[nama].jualQty += qty;
                         itemEval[nama].jualWL += totalWL;
+                        // Ambil modal terpakai (COGS) dan profit yang sudah dihitung sistem FIFO
+                        itemEval[nama].cogs += (row.cogs || 0);
+                        itemEval[nama].netProfit += (row.profitMurni || 0);
                     }
                 }
             });
@@ -471,18 +475,16 @@
                 let totalNetKeseluruhan = 0;
 
                 globalBarang.forEach(item => {
-                  let dataEval = itemEval[item] || { beliQty: 0, beliWL: 0, jualQty: 0, jualWL: 0 };
+                  let dataEval = itemEval[item];
                   
-                  if (period !== 'semua' && dataEval.beliQty === 0 && dataEval.jualQty === 0) {
+                  if (!dataEval || (period !== 'semua' && dataEval.beliQty === 0 && dataEval.jualQty === 0)) {
                       return; 
                   }
 
                   counter++;
                   
-                  let modalTerpakai = (globalAvgBeli[item] || 0) * dataEval.jualQty;
-                  let netProfit = Math.round(dataEval.jualWL - modalTerpakai);
+                  let netProfit = Math.round(dataEval.netProfit);
                   
-                  // Tambahkan ke total perhitungan
                   totalModalKeseluruhan += dataEval.beliWL; 
                   totalOmsetKeseluruhan += dataEval.jualWL; 
                   totalNetKeseluruhan += netProfit; 
@@ -500,7 +502,6 @@
                 if(counter === 0) {
                     tbodyEval.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-xs text-gray-400">Tidak ada transaksi item pada periode ini.</td></tr>`;
                 } else {
-                    // Tampilkan Baris Total
                     tfootEval.classList.remove('hidden');
                     tfootEval.innerHTML = `
                         <tr>
@@ -516,6 +517,7 @@
             }
         }
 
+        // FUNGSI LOAD DATA BARU DENGAN LOGIKA FIFO (FIRST-IN, FIRST-OUT)
         async function loadData() {
             showLoading("Memuat Data dari Database...", "");
             try {
@@ -523,7 +525,6 @@
                 const result = await response.json();
                 
                 if (result.status === 'success') {
-                    // Simpan ke variabel global untuk filter
                     globalRiwayat = result.riwayat;
                     globalBarang = result.barang;
 
@@ -535,37 +536,23 @@
                     const totalWlKas = result.saldo_saat_ini.total_wl;
                     const idrKas = (totalWlKas / 100) * savedRate;
                     document.getElementById('home-est-idr').innerText = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(idrKas);
+                    
                     const historyList = document.getElementById('history-list');
                     historyList.innerHTML = '';
                     globalProfitHarian = {};
                     
-                    // 1. Hitung Rata-rata Modal (Harga Beli) per Item dari SEMUA waktu
-                    globalAvgBeli = {};
-                    let tempBeli = {};
-                    result.riwayat.forEach(row => {
-                        const nama = row['Nama Barang'];
-                        const qty = Number(row['Jumlah']) || 0;
-                        const tipe = row['Tipe'].toLowerCase();
-                        if (tipe.includes('beli') && !tipe.includes('saldo') && nama !== 'Saldo Manual') {
-                            if (!tempBeli[nama]) tempBeli[nama] = { qty: 0, wl: 0 };
-                            tempBeli[nama].qty += qty;
-                            tempBeli[nama].wl += Number(row['Total WL']) || 0;
-                        }
-                    });
-                    for (let item in tempBeli) {
-                        globalAvgBeli[item] = tempBeli[item].wl / tempBeli[item].qty;
-                    }
-
-                    // 2. Hitung Stok dan Profit Murni (Profit HANYA saat ada Jual)
+                    // -- ALGORITMA FIFO DIMULAI DARI SINI --
+                    let inventoryFifo = {}; 
                     let itemStock = {}; 
                     let pHari = 0, pMinggu = 0, pBulan = 0;
+                    
                     const todayStr = getLocalDateString();
                     const thisMonthStr = todayStr.substring(0,7);
-                    
                     const lastWeekDate = new Date();
                     lastWeekDate.setDate(lastWeekDate.getDate() - 7);
                     const lastWeekStr = lastWeekDate.getFullYear() + '-' + String(lastWeekDate.getMonth() + 1).padStart(2, '0') + '-' + String(lastWeekDate.getDate()).padStart(2, '0');
 
+                    // Pastikan riwayat dibaca dari paling lama ke terbaru untuk FIFO yang akurat
                     result.riwayat.forEach(row => {
                         const nama = row['Nama Barang'];
                         const qty = Number(row['Jumlah']) || 0;
@@ -573,28 +560,54 @@
                         const totalWL = Number(row['Total WL']) || 0;
                         const tgl = row['Tanggal'] ? row['Tanggal'].split('T')[0] : '';
                         
-                        // Siapkan wadah untuk tanggal ini di grafik jika belum ada
                         if (tgl && globalProfitHarian[tgl] === undefined) {
                             globalProfitHarian[tgl] = 0;
                         }
                         
                         if (!tipe.includes('saldo') && nama !== 'Saldo Manual') {
-                            if (itemStock[nama] === undefined) itemStock[nama] = 0;
+                            // Inisialisasi queue item jika belum ada
+                            if (itemStock[nama] === undefined) {
+                                itemStock[nama] = 0;
+                                inventoryFifo[nama] = []; 
+                            }
                             
                             if (tipe.includes('beli')) {
                                 itemStock[nama] += qty;
-                            } else if (tipe.includes('jual')) {
+                                // Simpan riwayat kloter harga beli (qty, harga per piece) ke antrean
+                                let hargaSatuan = qty > 0 ? (totalWL / qty) : 0;
+                                inventoryFifo[nama].push({ sisaQty: qty, hargaBeli: hargaSatuan });
+                            } 
+                            else if (tipe.includes('jual')) {
                                 itemStock[nama] -= qty;
                                 
-                                // RUMUS PROFIT MURNI: Omset Jual - (Harga Beli Rata-rata * Jumlah Terjual)
-                                let modalTerpakai = (globalAvgBeli[nama] || 0) * qty;
+                                // PROSES PENGURANGAN FIFO
+                                let qtyJual = qty;
+                                let modalTerpakai = 0;
+                                
+                                // Selama masih ada yang dijual dan antrean beli belum kosong
+                                while (qtyJual > 0 && inventoryFifo[nama].length > 0) {
+                                    let kloterLama = inventoryFifo[nama][0]; // Ambil stok paling tua
+                                    
+                                    if (kloterLama.sisaQty <= qtyJual) {
+                                        // Habiskan kloter tua ini
+                                        modalTerpakai += kloterLama.sisaQty * kloterLama.hargaBeli;
+                                        qtyJual -= kloterLama.sisaQty;
+                                        inventoryFifo[nama].shift(); // Hapus kloter karena sudah laku
+                                    } else {
+                                        // Kloter tua masih sisa, ambil sebagian saja
+                                        modalTerpakai += qtyJual * kloterLama.hargaBeli;
+                                        kloterLama.sisaQty -= qtyJual;
+                                        qtyJual = 0; // Kebutuhan jual sudah terpenuhi
+                                    }
+                                }
+                                
                                 let profitMurniTrx = totalWL - modalTerpakai;
 
-                                // Simpan profit per hari untuk grafik
-                                if (tgl) {
-                                    globalProfitHarian[tgl] += profitMurniTrx;
-                                }
+                                // SIMPAN modalTerpakai & profitMurniTrx ke objek ROW agar bisa dibaca tab Evaluasi
+                                row.cogs = modalTerpakai;
+                                row.profitMurni = profitMurniTrx;
 
+                                if (tgl) { globalProfitHarian[tgl] += profitMurniTrx; }
                                 if (tgl === todayStr) pHari += profitMurniTrx;
                                 if (tgl >= lastWeekStr && tgl <= todayStr) pMinggu += profitMurniTrx;
                                 if (tgl.startsWith(thisMonthStr)) pBulan += profitMurniTrx;
@@ -602,7 +615,6 @@
                         }
                     });
 
-                    // Bulatkan profit agar tidak ada angka desimal
                     pHari = Math.round(pHari);
                     pMinggu = Math.round(pMinggu);
                     pBulan = Math.round(pBulan);
@@ -611,7 +623,6 @@
                     document.getElementById('profit-minggu').innerHTML = formatProfit(pMinggu);
                     document.getElementById('profit-bulan').innerHTML = formatProfit(pBulan);
                     
-                    // Panggil fungsi render grafik yang baru
                     updateChart();
 
                     const selectBarang = document.getElementById('nama_barang');
@@ -636,13 +647,13 @@
                         tbodyItem.innerHTML = '<tr><td colspan="2" class="p-4 text-center text-xs text-gray-400">Belum ada item ditambahkan.</td></tr>';
                     }
 
-                    // Panggil fungsi render evaluasi yang baru
                     renderEvaluasi();
 
                     if (result.riwayat.length === 0) {
                         historyList.innerHTML = '<div class="text-center text-gray-500 py-10">Belum ada transaksi</div>';
                     } else {
-                        result.riwayat.reverse().forEach(row => {
+                        // Render UI List dengan urutan terbaru di atas
+                        [...result.riwayat].reverse().forEach(row => {
                             const isMinus = row['Tipe'].toLowerCase().includes('beli') || row['Tipe'].toLowerCase().includes('kurang');
                             const showJumlah = (row['Nama Barang'] === 'Saldo Manual') ? '' : `<span class="text-xs text-blue-600 bg-blue-100 font-bold px-1.5 py-0.5 rounded">x${row['Jumlah']}</span>`;
                             let tgl = '-';
